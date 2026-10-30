@@ -8,6 +8,8 @@ below every window**. No Dock icon, no Mission Control, no focus stealing.
 
 ![预览](docs/preview.png)
 
+> 预览为合成示意：窗口截图叠加在系统壁纸（Sonoma）上，实际使用时背景就是你的桌面。
+
 ## 特点
 
 - **桌面层**：不是浮在所有窗口之上的挂件，而是桌面的一部分
