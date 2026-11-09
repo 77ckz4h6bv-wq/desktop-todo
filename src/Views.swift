@@ -354,6 +354,10 @@ enum PanelMode {
     case archive
 }
 
+protocol HoverHighlighting: AnyObject {
+    func setHovered(_ hovered: Bool)
+}
+
 final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     let panel: DesktopPanel
     private let store: TodoStore
@@ -404,6 +408,8 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private var snapStartFrame: NSRect = .zero
     private var snapTargetFrame: NSRect = .zero
     private var seamCorners: CACornerMask?
+    private weak var hoveredRow: HoverHighlighting?
+    private var scrollObserver: NSObjectProtocol?
     private var noticeText: String?
     private var noticeToken = 0
     private var mouseUpMonitor: Any?
@@ -515,6 +521,7 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         if let monitor = mouseMonitor { NSEvent.removeMonitor(monitor) }
         if let monitor = mouseUpMonitor { NSEvent.removeMonitor(monitor) }
         if let monitor = dragMonitor { NSEvent.removeMonitor(monitor) }
+        if let observer = scrollObserver { NotificationCenter.default.removeObserver(observer) }
         snapTimer?.invalidate()
     }
 
@@ -791,6 +798,15 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         content.addSubview(doingStack)
 
         scrollView.drawsBackground = false
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        scrollObserver = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView,
+            queue: .main) { [weak self] _ in
+            guard let self = self else { return }
+            self.hoveredRow?.setHovered(false)
+            self.hoveredRow = nil
+        }
         scrollView.hasVerticalScroller = true
         scrollView.scrollerStyle = .overlay
         scrollView.autohidesScrollers = true
@@ -973,6 +989,7 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     // MARK: - Data
 
     func reload() {
+        hoveredRow = nil
         for row in rows {
             stack.removeArrangedSubview(row)
             row.removeFromSuperview()
@@ -1071,6 +1088,9 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private func buildTodoRows() {
         for item in store.items where !item.isDoing {
             let row = TodoRowView(item: item, palette: palette)
+            row.onHoverChange = { [weak self, weak row] entered in
+                self?.hoverChanged(row, entered: entered)
+            }
             row.translatesAutoresizingMaskIntoConstraints = false
             row.onToggle = { [weak self] in
                 self?.store.complete(id: item.id)
@@ -1106,6 +1126,9 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         store.purgeExpiredArchive()
         for item in store.sortedArchive {
             let row = ArchiveRowView(item: item, palette: palette)
+            row.onHoverChange = { [weak self, weak row] entered in
+                self?.hoverChanged(row, entered: entered)
+            }
             row.translatesAutoresizingMaskIntoConstraints = false
             row.onRestore = { [weak self] in
                 self?.store.restore(id: item.id)
@@ -1130,6 +1153,19 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     }
 
     /// 用清单自己的那行小字显示问题提示，几秒后自动恢复
+    /// 同一时刻只允许一行处于 hover 高亮；滚动时 mouseExited 可能不来，靠进入新行清掉旧行
+    private func hoverChanged(_ row: HoverHighlighting?, entered: Bool) {
+        guard let row = row else { return }
+        if entered {
+            if let previous = hoveredRow, previous !== row {
+                previous.setHovered(false)
+            }
+            hoveredRow = row
+        } else if hoveredRow === row {
+            hoveredRow = nil
+        }
+    }
+
     func showNotice(_ text: String, seconds: Double = 10) {
         noticeText = text
         noticeToken += 1
@@ -1239,7 +1275,7 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
 // MARK: - Row
 
-final class TodoRowView: NSView, NSTextFieldDelegate {
+final class TodoRowView: NSView, NSTextFieldDelegate, HoverHighlighting {
     private let item: TodoItem
     private let palette: Palette
     var onToggle: (() -> Void)?
@@ -1402,18 +1438,24 @@ final class TodoRowView: NSView, NSTextFieldDelegate {
         tracking = area
     }
 
+    var onHoverChange: ((Bool) -> Void)?
+
+    func setHovered(_ hovered: Bool) {
+        del.isHidden = !hovered
+        flag.isHidden = !hovered
+        layer?.backgroundColor = hovered ? palette.hoverFill.cgColor : NSColor.clear.cgColor
+    }
+
     override func mouseEntered(with event: NSEvent) {
-        del.isHidden = false
-        flag.isHidden = false
-        layer?.backgroundColor = palette.hoverFill.cgColor
+        setHovered(true)
+        onHoverChange?(true)
     }
 
     override func mouseExited(with event: NSEvent) {
         if !isEditingNow {
-            del.isHidden = true
-            flag.isHidden = true
+            setHovered(false)
         }
-        layer?.backgroundColor = NSColor.clear.cgColor
+        onHoverChange?(false)
     }
 
     @objc private func toggleTapped() { onToggle?() }
@@ -1476,7 +1518,7 @@ enum ArchiveDate {
 }
 
 /// 收录本里的一行：勾 + 标题 + 完成时间，点一下恢复到待办
-final class ArchiveRowView: NSView {
+final class ArchiveRowView: NSView, HoverHighlighting {
     private let item: TodoItem
     private let palette: Palette
     var onRestore: (() -> Void)?
@@ -1575,16 +1617,22 @@ final class ArchiveRowView: NSView {
         tracking = area
     }
 
+    var onHoverChange: ((Bool) -> Void)?
+
+    func setHovered(_ hovered: Bool) {
+        layer?.backgroundColor = hovered ? palette.hoverFill.cgColor : NSColor.clear.cgColor
+        deleteButton.isHidden = !hovered
+        if hovered { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+    }
+
     override func mouseEntered(with event: NSEvent) {
-        layer?.backgroundColor = palette.hoverFill.cgColor
-        deleteButton.isHidden = false
-        NSCursor.pointingHand.set()
+        setHovered(true)
+        onHoverChange?(true)
     }
 
     override func mouseExited(with event: NSEvent) {
-        layer?.backgroundColor = NSColor.clear.cgColor
-        deleteButton.isHidden = true
-        NSCursor.arrow.set()
+        setHovered(false)
+        onHoverChange?(false)
     }
 
     override func mouseDown(with event: NSEvent) {
