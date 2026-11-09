@@ -60,6 +60,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         personalWidget?.showOnDesktop()
         widget?.companionPanel = { [weak self] in self?.personalWidget?.panel }
         personalWidget?.companionPanel = { [weak self] in self?.widget?.panel }
+        // 在办：全局最多两个，跨两个清单统计
+        let requestDoing: (UUID, Bool) -> Bool = { [weak self] id, active in
+            guard let self = self else { return false }
+            let total = (self.widget?.doingCount ?? 0) + (self.personalWidget?.doingCount ?? 0)
+            if active && total >= 2 { return false }
+            if let work = self.widget, work.contains(id) {
+                work.setDoing(id, active)
+            } else if let personal = self.personalWidget, personal.contains(id) {
+                personal.setDoing(id, active)
+            }
+            self.widget?.reload()
+            self.personalWidget?.reload()
+            return true
+        }
+        widget?.onRequestDoing = requestDoing
+        personalWidget?.onRequestDoing = requestDoing
+        let refreshBoth: () -> Void = { [weak self] in
+            self?.widget?.reload()
+            self?.personalWidget?.reload()
+        }
+        widget?.onDoingDataChanged = refreshBoth
+        personalWidget?.onDoingDataChanged = refreshBoth
+
         if let work = widget, let personal = personalWidget {
             // 启动时校正历史遗留的 1px 错位，以工作待办为基准
             var frame = personal.panel.frame

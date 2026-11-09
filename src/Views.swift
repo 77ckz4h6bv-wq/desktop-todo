@@ -47,6 +47,7 @@ struct Palette {
     let editFill: NSColor
     let editText: NSColor
     let hoverFill: NSColor
+    let doingFill: NSColor
     let gripStroke: NSColor
     let textShadow: NSShadow?
     let gripHoverOnly: Bool
@@ -81,6 +82,7 @@ struct Palette {
                 editFill: NSColor(white: 0.12, alpha: 0.9),
                 editText: NSColor.white,
                 hoverFill: .clear,
+                doingFill: NSColor.white.withAlphaComponent(0.09),
                 gripStroke: NSColor.white.withAlphaComponent(0.4),
                 textShadow: shadow,
                 gripHoverOnly: true,
@@ -109,6 +111,7 @@ struct Palette {
                 editFill: NSColor(calibratedWhite: 0.14, alpha: 0.95),
                 editText: NSColor.white,
                 hoverFill: NSColor.white.withAlphaComponent(0.08),
+                doingFill: NSColor.white.withAlphaComponent(0.12),
                 gripStroke: NSColor.white.withAlphaComponent(0.2),
                 textShadow: nil,
                 gripHoverOnly: false,
@@ -372,6 +375,13 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private let docView = FlippedView()
     private let stack = NSStackView()
     private let emptyLabel = PassthroughLabel(labelWithString: "桌面上还没有待办\n在下面输入，按回车添加")
+    private let doingCaption = NSTextField(labelWithString: "在办")
+    private let doingStack = NSStackView()
+    private var doingRows: [DoingBarRow] = []
+    private var scrollTopToDivider: NSLayoutConstraint!
+    private var scrollTopToDoing: NSLayoutConstraint!
+    var onRequestDoing: ((UUID, Bool) -> Bool)?
+    var onDoingDataChanged: (() -> Void)?
     private let addBox = NSView()
     private let addField = NSTextField()
     private let placeholderLabel = PassthroughLabel(labelWithString: "添加待办…")
@@ -768,6 +778,18 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         divider.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(divider)
 
+        doingCaption.font = .systemFont(ofSize: 10.5, weight: .regular)
+        doingCaption.textColor = palette.hint
+        doingCaption.isHidden = true
+        doingCaption.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(doingCaption)
+
+        doingStack.orientation = .vertical
+        doingStack.spacing = 2
+        doingStack.isHidden = true
+        doingStack.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(doingStack)
+
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
         scrollView.scrollerStyle = .overlay
@@ -813,6 +835,8 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         grip.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(grip)
 
+        scrollTopToDivider = scrollView.topAnchor.constraint(equalTo: divider.bottomAnchor)
+        scrollTopToDoing = scrollView.topAnchor.constraint(equalTo: doingStack.bottomAnchor, constant: 6)
         scrollBottomToAddBox = scrollView.bottomAnchor.constraint(equalTo: addBox.topAnchor, constant: -10)
         scrollBottomToContent = scrollView.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -12)
 
@@ -851,7 +875,14 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             divider.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             divider.heightAnchor.constraint(equalToConstant: 1),
 
-            scrollView.topAnchor.constraint(equalTo: divider.bottomAnchor),
+            doingCaption.topAnchor.constraint(equalTo: divider.bottomAnchor, constant: 6),
+            doingCaption.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 16),
+
+            doingStack.topAnchor.constraint(equalTo: doingCaption.bottomAnchor, constant: 2),
+            doingStack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 10),
+            doingStack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -10),
+
+            scrollTopToDivider,
             scrollView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             scrollBottomToAddBox,
@@ -954,7 +985,8 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             titleLabel.stringValue = listTitle
             hintLabel.stringValue = noticeText ?? "双击文字可以改内容"
             hintLabel.textColor = noticeText != nil ? NSColor.white.withAlphaComponent(0.95) : palette.hint
-            countLabel.stringValue = store.items.isEmpty ? "" : "\(store.items.count) 项"
+            let pendingCount = store.items.filter { !$0.isDoing }.count
+            countLabel.stringValue = pendingCount == 0 ? "" : "\(pendingCount) 项"
             emptyLabel.stringValue = "桌面上还没有待办\n在下面输入，按回车添加"
             emptyLabel.isHidden = !store.items.isEmpty
             addField.isHidden = false
@@ -985,6 +1017,50 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             toggleButton.image = symbol("list.bullet")
             toggleButton.toolTip = "返回待办"
         }
+
+        rebuildDoingStrip()
+    }
+
+    // MARK: - 在办
+
+    var doingCount: Int { store.doingCount }
+    func contains(_ id: UUID) -> Bool { store.contains(id: id) }
+    func setDoing(_ id: UUID, _ active: Bool) { store.setDoing(id: id, active: active) }
+    /// 在办状态变化后整窗重载：列表行的旗子、在办条、计数都要跟着变
+    func refreshDoing() { reload() }
+
+    private func rebuildDoingStrip() {
+        for row in doingRows {
+            doingStack.removeArrangedSubview(row)
+            row.removeFromSuperview()
+        }
+        doingRows.removeAll()
+
+        let items = store.doingItems
+        doingCaption.isHidden = items.isEmpty
+        doingCaption.textColor = palette.hint
+        doingCaption.shadow = palette.textShadow
+        doingStack.isHidden = items.isEmpty
+        scrollTopToDivider?.isActive = items.isEmpty
+        scrollTopToDoing?.isActive = !items.isEmpty
+
+        for item in items {
+            let row = DoingBarRow(item: item, palette: palette)
+            row.translatesAutoresizingMaskIntoConstraints = false
+            row.onComplete = { [weak self] in
+                guard let self = self else { return }
+                self.store.complete(id: item.id)
+                self.reload()
+                self.onDoingDataChanged?()
+            }
+            row.onUnpin = { [weak self] in
+                guard let self = self else { return }
+                _ = self.onRequestDoing?(item.id, false)
+            }
+            doingStack.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: doingStack.widthAnchor).isActive = true
+            doingRows.append(row)
+        }
     }
 
     private func symbol(_ name: String) -> NSImage? {
@@ -993,7 +1069,7 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     }
 
     private func buildTodoRows() {
-        for item in store.items {
+        for item in store.items where !item.isDoing {
             let row = TodoRowView(item: item, palette: palette)
             row.translatesAutoresizingMaskIntoConstraints = false
             row.onToggle = { [weak self] in
@@ -1007,6 +1083,15 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             row.onRename = { [weak self] title in
                 self?.store.rename(id: item.id, title: title)
                 self?.reload()
+            }
+            row.onToggleDoing = { [weak self] in
+                guard let self = self else { return }
+                let active = !item.isDoing
+                if let handler = self.onRequestDoing {
+                    if !handler(item.id, active), active {
+                        self.showNotice("在办最多两个，先完成一个", seconds: 4)
+                    }
+                }
             }
             stack.addArrangedSubview(row)
             NSLayoutConstraint.activate([
@@ -1160,9 +1245,11 @@ final class TodoRowView: NSView, NSTextFieldDelegate {
     var onToggle: (() -> Void)?
     var onDelete: (() -> Void)?
     var onRename: ((String) -> Void)?
+    var onToggleDoing: (() -> Void)?
 
     private let check = NSButton()
     private let label = NSTextField(labelWithString: "")
+    private let flag = NSButton()
     private let del = NSButton()
     private let editField = NSTextField()
     private var tracking: NSTrackingArea?
@@ -1204,6 +1291,19 @@ final class TodoRowView: NSView, NSTextFieldDelegate {
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
 
+        flag.isBordered = false
+        flag.imagePosition = .imageOnly
+        flag.focusRingType = .none
+        flag.image = NSImage(systemSymbolName: item.isDoing ? "flag.fill" : "flag", accessibilityDescription: "在办")?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold))
+        flag.contentTintColor = item.isDoing ? .controlAccentColor : palette.checkTint
+        flag.target = self
+        flag.action = #selector(toggleDoingTapped)
+        flag.toolTip = item.isDoing ? "取消在办" : "设为在办"
+        flag.isHidden = true
+        flag.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(flag)
+
         del.isBordered = false
         del.imagePosition = .imageOnly
         del.focusRingType = .none
@@ -1235,7 +1335,12 @@ final class TodoRowView: NSView, NSTextFieldDelegate {
             check.heightAnchor.constraint(equalToConstant: 20),
 
             label.leadingAnchor.constraint(equalTo: check.trailingAnchor, constant: 9),
-            label.trailingAnchor.constraint(equalTo: del.leadingAnchor, constant: -6),
+            label.trailingAnchor.constraint(equalTo: flag.leadingAnchor, constant: -6),
+
+            flag.trailingAnchor.constraint(equalTo: del.leadingAnchor, constant: -2),
+            flag.centerYAnchor.constraint(equalTo: centerYAnchor),
+            flag.widthAnchor.constraint(equalToConstant: 18),
+            flag.heightAnchor.constraint(equalToConstant: 18),
             label.topAnchor.constraint(equalTo: topAnchor, constant: 8),
             label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
 
@@ -1299,15 +1404,20 @@ final class TodoRowView: NSView, NSTextFieldDelegate {
 
     override func mouseEntered(with event: NSEvent) {
         del.isHidden = false
+        flag.isHidden = false
         layer?.backgroundColor = palette.hoverFill.cgColor
     }
 
     override func mouseExited(with event: NSEvent) {
-        if !isEditingNow { del.isHidden = true }
+        if !isEditingNow {
+            del.isHidden = true
+            flag.isHidden = true
+        }
         layer?.backgroundColor = NSColor.clear.cgColor
     }
 
     @objc private func toggleTapped() { onToggle?() }
+    @objc private func toggleDoingTapped() { onToggleDoing?() }
     @objc private func deleteTapped() { onDelete?() }
 
     @objc private func beginEdit() {

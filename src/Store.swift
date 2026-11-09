@@ -6,17 +6,23 @@ struct TodoItem: Codable, Identifiable {
     var done: Bool
     var createdAt: Date
     var completedAt: Date?
+    /// 是否处于"在办"状态（nil 表示否，兼容旧数据）
+    var doing: Bool?
+
+    var isDoing: Bool { doing ?? false }
 
     init(id: UUID = UUID(),
          title: String,
          done: Bool = false,
          createdAt: Date = Date(),
-         completedAt: Date? = nil) {
+         completedAt: Date? = nil,
+         doing: Bool? = nil) {
         self.id = id
         self.title = title
         self.done = done
         self.createdAt = createdAt
         self.completedAt = completedAt
+        self.doing = doing
     }
 }
 
@@ -62,6 +68,18 @@ final class TodoStore {
     }
 
     var remaining: Int { items.filter { !$0.done }.count }
+    var doingItems: [TodoItem] { items.filter { $0.isDoing } }
+    var doingCount: Int { doingItems.count }
+
+    func contains(id: UUID) -> Bool {
+        items.contains { $0.id == id }
+    }
+
+    func setDoing(id: UUID, active: Bool) {
+        guard let i = items.firstIndex(where: { $0.id == id }) else { return }
+        items[i].doing = active ? true : nil
+        save()
+    }
 
     // MARK: - 读写
 
@@ -187,6 +205,7 @@ final class TodoStore {
         var item = items.remove(at: i)
         item.done = true
         item.completedAt = Date()
+        item.doing = nil
         archive.insert(item, at: 0)
         save()
     }
@@ -209,6 +228,7 @@ final class TodoStore {
         var item = archive.remove(at: i)
         item.done = false
         item.completedAt = nil
+        item.doing = nil
         item.createdAt = Date()
         items.append(item)
         save()
