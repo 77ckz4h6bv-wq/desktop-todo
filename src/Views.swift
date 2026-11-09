@@ -610,19 +610,25 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             let f = panel.frame
             let tolerance: CGFloat = 1.5
             let topsAligned = abs(f.maxY - other.maxY) <= tolerance
+            let bottomsAligned = abs(f.minY - other.minY) <= tolerance
             let leftsAligned = abs(f.minX - other.minX) <= tolerance
-            // 只有对齐并贴住的那条边才抹直角，错开摆放一律保留圆角
-            if topsAligned, abs(f.maxX - other.minX) <= tolerance {
-                corners.remove(.layerMaxXMinYCorner); corners.remove(.layerMaxXMaxYCorner)
+            let rightsAligned = abs(f.maxX - other.maxX) <= tolerance
+            // 只抹掉“确实被另一边盖住”的角，高度/宽度不一致时不会抹错
+            if abs(f.maxX - other.minX) <= tolerance {       // 我贴它左侧
+                if topsAligned { corners.remove(.layerMaxXMaxYCorner) }
+                if bottomsAligned { corners.remove(.layerMaxXMinYCorner) }
             }
-            if topsAligned, abs(f.minX - other.maxX) <= tolerance {
-                corners.remove(.layerMinXMinYCorner); corners.remove(.layerMinXMaxYCorner)
+            if abs(f.minX - other.maxX) <= tolerance {       // 我贴它右侧
+                if topsAligned { corners.remove(.layerMinXMaxYCorner) }
+                if bottomsAligned { corners.remove(.layerMinXMinYCorner) }
             }
-            if leftsAligned, abs(f.maxY - other.minY) <= tolerance {
-                corners.remove(.layerMinXMaxYCorner); corners.remove(.layerMaxXMaxYCorner)
+            if abs(f.maxY - other.minY) <= tolerance {       // 我贴它下方
+                if leftsAligned { corners.remove(.layerMinXMaxYCorner) }
+                if rightsAligned { corners.remove(.layerMaxXMaxYCorner) }
             }
-            if leftsAligned, abs(f.minY - other.maxY) <= tolerance {
-                corners.remove(.layerMinXMinYCorner); corners.remove(.layerMaxXMinYCorner)
+            if abs(f.minY - other.maxY) <= tolerance {       // 我贴它上方
+                if leftsAligned { corners.remove(.layerMinXMinYCorner) }
+                if rightsAligned { corners.remove(.layerMaxXMinYCorner) }
             }
         }
         guard corners != seamCorners else { return }
@@ -989,6 +995,7 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     // MARK: - Data
 
     func reload() {
+        if hoveredRow != nil { NSCursor.arrow.set() }
         hoveredRow = nil
         for row in rows {
             stack.removeArrangedSubview(row)
@@ -1004,8 +1011,12 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             hintLabel.textColor = noticeText != nil ? NSColor.white.withAlphaComponent(0.95) : palette.hint
             let pendingCount = store.items.filter { !$0.isDoing }.count
             countLabel.stringValue = pendingCount == 0 ? "" : "\(pendingCount) 项"
-            emptyLabel.stringValue = "桌面上还没有待办\n在下面输入，按回车添加"
-            emptyLabel.isHidden = !store.items.isEmpty
+            if store.items.isEmpty {
+                emptyLabel.stringValue = "桌面上还没有待办\n在下面输入，按回车添加"
+            } else if pendingCount == 0 {
+                emptyLabel.stringValue = "都在「在办」里\n完成或取消在办后会回到这里"
+            }
+            emptyLabel.isHidden = !(store.items.isEmpty || pendingCount == 0)
             addField.isHidden = false
             updatePlaceholderVisibility()
             addBox.isHidden = false
@@ -1053,7 +1064,8 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         }
         doingRows.removeAll()
 
-        let items = store.doingItems
+        // 在办条只属于待办视图，归档里不显示
+        let items = mode == .todos ? store.doingItems : []
         doingCaption.isHidden = items.isEmpty
         doingCaption.textColor = palette.hint
         doingCaption.shadow = palette.textShadow
@@ -1290,6 +1302,7 @@ final class TodoRowView: NSView, NSTextFieldDelegate, HoverHighlighting {
     private let editField = NSTextField()
     private var tracking: NSTrackingArea?
     private(set) var isEditingNow = false
+    private var isHovering = false
 
     init(item: TodoItem, palette: Palette) {
         self.item = item
@@ -1447,11 +1460,13 @@ final class TodoRowView: NSView, NSTextFieldDelegate, HoverHighlighting {
     }
 
     override func mouseEntered(with event: NSEvent) {
+        isHovering = true
         setHovered(true)
         onHoverChange?(true)
     }
 
     override func mouseExited(with event: NSEvent) {
+        isHovering = false
         if !isEditingNow {
             setHovered(false)
         }
@@ -1481,6 +1496,7 @@ final class TodoRowView: NSView, NSTextFieldDelegate, HoverHighlighting {
         let text = editField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         editField.isHidden = true
         label.isHidden = false
+        if !isHovering { setHovered(false) }
         window?.makeFirstResponder(nil)
         if commit, !text.isEmpty, text != item.title {
             // 延后到下一个 runloop：重载会移除本行视图
