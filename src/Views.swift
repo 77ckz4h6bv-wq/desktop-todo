@@ -71,7 +71,7 @@ struct Palette {
                 hint: NSColor.white.withAlphaComponent(0.5),
                 menuTint: NSColor.white.withAlphaComponent(0.8),
                 divider: .clear,
-                separator: NSColor.white.withAlphaComponent(0.24),
+                separator: NSColor.white.withAlphaComponent(0.5),
                 addBoxFill: .clear,
                 addText: NSColor.white,
                 placeholder: NSColor.white.withAlphaComponent(0.68),
@@ -101,7 +101,7 @@ struct Palette {
                 hint: NSColor.white.withAlphaComponent(0.55),
                 menuTint: NSColor.white.withAlphaComponent(0.7),
                 divider: NSColor.white.withAlphaComponent(0.16),
-                separator: NSColor.white.withAlphaComponent(0.18),
+                separator: NSColor.white.withAlphaComponent(0.38),
                 addBoxFill: .clear,
                 addText: NSColor.white,
                 placeholder: NSColor.white.withAlphaComponent(0.55),
@@ -795,7 +795,7 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         divider.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(divider)
 
-        doingCaption.font = .systemFont(ofSize: 10.5, weight: .regular)
+        doingCaption.font = .systemFont(ofSize: 10.5, weight: .medium)
         doingCaption.textColor = palette.hint
         doingCaption.isHidden = true
         doingCaption.translatesAutoresizingMaskIntoConstraints = false
@@ -867,7 +867,7 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         content.addSubview(grip)
 
         scrollTopToDivider = scrollView.topAnchor.constraint(equalTo: divider.bottomAnchor)
-        scrollTopToDoing = scrollView.topAnchor.constraint(equalTo: doingSeparator.bottomAnchor, constant: 8)
+        scrollTopToDoing = scrollView.topAnchor.constraint(equalTo: doingSeparator.bottomAnchor, constant: 4)
         scrollBottomToAddBox = scrollView.bottomAnchor.constraint(equalTo: addBox.topAnchor, constant: -10)
         scrollBottomToContent = scrollView.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -12)
 
@@ -913,10 +913,10 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             doingStack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 10),
             doingStack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -10),
 
-            doingSeparator.topAnchor.constraint(equalTo: doingStack.bottomAnchor, constant: 6),
+            doingSeparator.topAnchor.constraint(equalTo: doingStack.bottomAnchor, constant: 10),
             doingSeparator.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 16),
             doingSeparator.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -16),
-            doingSeparator.heightAnchor.constraint(equalToConstant: 1),
+            doingSeparator.heightAnchor.constraint(equalToConstant: 3),
 
             scrollTopToDivider,
             scrollView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
@@ -1081,7 +1081,7 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         // 在办条只属于待办视图，归档里不显示
         let items = mode == .todos ? store.doingItems : []
         doingCaption.isHidden = items.isEmpty
-        doingCaption.textColor = palette.hint
+        doingCaption.textColor = NSColor.white
         doingCaption.shadow = palette.textShadow
         doingStack.isHidden = items.isEmpty
         doingSeparator.isHidden = items.isEmpty
