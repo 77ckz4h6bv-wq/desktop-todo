@@ -35,6 +35,7 @@ struct Palette {
     let hint: NSColor
     let menuTint: NSColor
     let divider: NSColor
+    let separator: NSColor
     let addBoxFill: NSColor
     let addText: NSColor
     let placeholder: NSColor
@@ -70,6 +71,7 @@ struct Palette {
                 hint: NSColor.white.withAlphaComponent(0.5),
                 menuTint: NSColor.white.withAlphaComponent(0.8),
                 divider: .clear,
+                separator: NSColor.white.withAlphaComponent(0.12),
                 addBoxFill: .clear,
                 addText: NSColor.white,
                 placeholder: NSColor.white.withAlphaComponent(0.68),
@@ -99,6 +101,7 @@ struct Palette {
                 hint: NSColor.white.withAlphaComponent(0.55),
                 menuTint: NSColor.white.withAlphaComponent(0.7),
                 divider: NSColor.white.withAlphaComponent(0.16),
+                separator: NSColor.white.withAlphaComponent(0.10),
                 addBoxFill: .clear,
                 addText: NSColor.white,
                 placeholder: NSColor.white.withAlphaComponent(0.55),
@@ -380,6 +383,7 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private let stack = NSStackView()
     private let emptyLabel = PassthroughLabel(labelWithString: "桌面上还没有待办\n在下面输入，按回车添加")
     private let doingCaption = NSTextField(labelWithString: "在办")
+    private let doingSeparator = NSView()
     private let doingStack = NSStackView()
     private var doingRows: [DoingBarRow] = []
     private var scrollTopToDivider: NSLayoutConstraint!
@@ -803,6 +807,11 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         doingStack.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(doingStack)
 
+        doingSeparator.wantsLayer = true
+        doingSeparator.isHidden = true
+        doingSeparator.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(doingSeparator)
+
         scrollView.drawsBackground = false
         scrollView.contentView.postsBoundsChangedNotifications = true
         scrollObserver = NotificationCenter.default.addObserver(
@@ -858,7 +867,7 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         content.addSubview(grip)
 
         scrollTopToDivider = scrollView.topAnchor.constraint(equalTo: divider.bottomAnchor)
-        scrollTopToDoing = scrollView.topAnchor.constraint(equalTo: doingStack.bottomAnchor, constant: 6)
+        scrollTopToDoing = scrollView.topAnchor.constraint(equalTo: doingSeparator.bottomAnchor, constant: 8)
         scrollBottomToAddBox = scrollView.bottomAnchor.constraint(equalTo: addBox.topAnchor, constant: -10)
         scrollBottomToContent = scrollView.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -12)
 
@@ -903,6 +912,11 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             doingStack.topAnchor.constraint(equalTo: doingCaption.bottomAnchor, constant: 2),
             doingStack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 10),
             doingStack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -10),
+
+            doingSeparator.topAnchor.constraint(equalTo: doingStack.bottomAnchor, constant: 6),
+            doingSeparator.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 16),
+            doingSeparator.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -16),
+            doingSeparator.heightAnchor.constraint(equalToConstant: 1),
 
             scrollTopToDivider,
             scrollView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
@@ -1070,6 +1084,8 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         doingCaption.textColor = palette.hint
         doingCaption.shadow = palette.textShadow
         doingStack.isHidden = items.isEmpty
+        doingSeparator.isHidden = items.isEmpty
+        doingSeparator.layer?.backgroundColor = palette.separator.cgColor
         scrollTopToDivider?.isActive = items.isEmpty
         scrollTopToDoing?.isActive = !items.isEmpty
 
