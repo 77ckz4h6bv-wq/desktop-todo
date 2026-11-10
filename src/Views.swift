@@ -1024,7 +1024,8 @@ final class WidgetController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             hintLabel.stringValue = noticeText ?? "双击文字可以改内容"
             hintLabel.textColor = noticeText != nil ? NSColor.white.withAlphaComponent(0.95) : palette.hint
             let pendingCount = store.items.filter { !$0.isDoing }.count
-            countLabel.stringValue = pendingCount == 0 ? "" : "\(pendingCount) 项"
+            // 计数包含在办项：用户看到的是这个清单里一共还有多少件事
+            countLabel.stringValue = store.items.isEmpty ? "" : "\(store.items.count) 项"
             if store.items.isEmpty {
                 emptyLabel.stringValue = "桌面上还没有待办\n在下面输入，按回车添加"
             } else if pendingCount == 0 {
